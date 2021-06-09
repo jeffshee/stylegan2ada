@@ -9,10 +9,11 @@ import numpy as np
 import cv2
 
 from utilgan import img_list, basename
-try: # progress bar for notebooks 
+
+try:  # progress bar for notebooks
     get_ipython().__class__.__name__
     from progress_bar import ProgressIPy as ProgressBar
-except: # normal console
+except:  # normal console
     from progress_bar import ProgressBar
 
 parser = argparse.ArgumentParser()
@@ -34,25 +35,26 @@ a = parser.parse_args()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
 def worker(path, save_folder, crop_size, step, min_step):
     img_name = basename(path)
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
 
     # convert monochrome to RGB if needed
     if len(img.shape) == 2:
-        img = img[:,:,np.newaxis]
+        img = img[:, :, np.newaxis]
     if img.shape[2] == 1:
-        img = img[:, :, (0,0,0)]
+        img = img[:, :, (0, 0, 0)]
     h, w, c = img.shape
-    
-    ext = 'png' if img.shape[2]==4 else 'jpg'
 
-    min_size = min(h,w)
+    ext = 'png' if img.shape[2] == 4 else 'jpg'
+
+    min_size = min(h, w)
     if min_size < crop_size:
-        h = int(h * crop_size/min_size)
-        w = int(w * crop_size/min_size)
-        img = cv2.resize(img, (w,h), interpolation = cv2.INTER_AREA)
-        
+        h = int(h * crop_size / min_size)
+        w = int(w * crop_size / min_size)
+        img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+
     h_space = np.arange(0, h - crop_size + 1, step)
     if h - (h_space[-1] + crop_size) > min_step:
         h_space = np.append(h_space, h - crop_size)
@@ -66,11 +68,14 @@ def worker(path, save_folder, crop_size, step, min_step):
             index += 1
             crop_img = img[x:x + crop_size, y:y + crop_size, :]
             crop_img = np.ascontiguousarray(crop_img)
-            if ext=='png':
-                cv2.imwrite(os.path.join(save_folder, '%s-s%03d.%s' % (img_name, index, ext)), crop_img, [cv2.IMWRITE_PNG_COMPRESSION, a.png_compression])
+            if ext == 'png':
+                cv2.imwrite(os.path.join(save_folder, '%s-s%03d.%s' % (img_name, index, ext)), crop_img,
+                            [cv2.IMWRITE_PNG_COMPRESSION, a.png_compression])
             else:
-                cv2.imwrite(os.path.join(save_folder, '%s-s%03d.%s' % (img_name, index, ext)), crop_img, [cv2.IMWRITE_JPEG_QUALITY, a.jpg_quality])
+                cv2.imwrite(os.path.join(save_folder, '%s-s%03d.%s' % (img_name, index, ext)), crop_img,
+                            [cv2.IMWRITE_JPEG_QUALITY, a.jpg_quality])
     return 'Processing {:s} ...'.format(img_name)
+
 
 def main():
     """A multi-thread tool to crop sub images."""
@@ -93,8 +98,8 @@ def main():
     pool = Pool(n_thread)
     for path in images:
         pool.apply_async(worker,
-            args=(path, save_folder, crop_size, step, min_step),
-            callback=update)
+                         args=(path, save_folder, crop_size, step, min_step),
+                         callback=update)
     pool.close()
     pool.join()
     print('All subprocesses done.')
@@ -104,4 +109,3 @@ if __name__ == '__main__':
     # workaround for multithreading in jupyter console
     __spec__ = "ModuleSpec(name='builtins', loader=<class '_frozen_importlib.BuiltinImporter'>)"
     main()
-

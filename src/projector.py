@@ -24,45 +24,47 @@ import dnnlib
 import legacy
 
 from util.utilgan import img_list, img_read, basename
-try: # progress bar for notebooks 
+
+try:  # progress bar for notebooks
     get_ipython().__class__.__name__
     from util.progress_bar import ProgressIPy as ProgressBar
-except: # normal console
+except:  # normal console
     from util.progress_bar import ProgressBar
 
+
 def project(
-    G,
-    target: torch.Tensor, # [C,H,W] and dynamic range [0,255], W & H must match G output resolution
-    *,
-    num_steps                  = 1000,
-    w_avg_samples              = 10000,
-    initial_learning_rate      = 0.1,
-    initial_noise_factor       = 0.05,
-    lr_rampdown_length         = 0.25,
-    lr_rampup_length           = 0.05,
-    noise_ramp_length          = 0.75,
-    regularize_noise_weight    = 1e5,
-    verbose                    = False,
-    device: torch.device
+        G,
+        target: torch.Tensor,  # [C,H,W] and dynamic range [0,255], W & H must match G output resolution
+        *,
+        num_steps=1000,
+        w_avg_samples=10000,
+        initial_learning_rate=0.1,
+        initial_noise_factor=0.05,
+        lr_rampdown_length=0.25,
+        lr_rampup_length=0.05,
+        noise_ramp_length=0.75,
+        regularize_noise_weight=1e5,
+        verbose=False,
+        device: torch.device
 ):
     assert target.shape == (G.img_channels, G.img_resolution, G.img_resolution)
 
     # def logprint(*args):
-        # if verbose:
-            # print(*args)
+    # if verbose:
+    # print(*args)
 
-    G = copy.deepcopy(G).eval().requires_grad_(False).to(device) # type: ignore
+    G = copy.deepcopy(G).eval().requires_grad_(False).to(device)  # type: ignore
 
     # Compute w stats.
     # logprint(f'Computing W midpoint and stddev using {w_avg_samples} samples...')
     z_samples = np.random.RandomState(123).randn(w_avg_samples, G.z_dim)
     w_samples = G.mapping(torch.from_numpy(z_samples).to(device), None)  # [N, L, C]
-    w_samples = w_samples[:, :1, :].cpu().numpy().astype(np.float32)       # [N, 1, C]
-    w_avg = np.mean(w_samples, axis=0, keepdims=True)      # [1, 1, C]
+    w_samples = w_samples[:, :1, :].cpu().numpy().astype(np.float32)  # [N, 1, C]
+    w_avg = np.mean(w_samples, axis=0, keepdims=True)  # [1, 1, C]
     w_std = (np.sum((w_samples - w_avg) ** 2) / w_avg_samples) ** 0.5
 
     # Setup noise inputs.
-    noise_bufs = { name: buf for (name, buf) in G.synthesis.named_buffers() if 'noise_const' in name }
+    noise_bufs = {name: buf for (name, buf) in G.synthesis.named_buffers() if 'noise_const' in name}
 
     # Load VGG16 feature detector.
     vgg_file = 'models/vgg/vgg16.pt'
@@ -71,16 +73,17 @@ def project(
             # network = pickle.load(file, encoding='latin1')
             vgg16 = torch.jit.load(file).eval().to(device)
     else:
-        with dnnlib.util.open_url('https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt') as file:
+        with dnnlib.util.open_url(
+                'https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt') as file:
             vgg16 = torch.jit.load(file).eval().to(device)
-    
+
     # Features for target image.
     target_images = target.unsqueeze(0).to(device).to(torch.float32)
     if target_images.shape[2] > 256:
         target_images = F.interpolate(target_images, size=(256, 256), mode='area')
     target_features = vgg16(target_images, resize_images=False, return_lpips=True)
 
-    w_opt = torch.tensor(w_avg, dtype=torch.float32, device=device, requires_grad=True) # pylint: disable=not-callable
+    w_opt = torch.tensor(w_avg, dtype=torch.float32, device=device, requires_grad=True)  # pylint: disable=not-callable
     w_out = torch.zeros([num_steps] + list(w_opt.shape[1:]), dtype=torch.float32, device=device)
     optimizer = torch.optim.Adam([w_opt] + list(noise_bufs.values()), betas=(0.9, 0.999), lr=initial_learning_rate)
 
@@ -107,7 +110,7 @@ def project(
         synth_images = G.synthesis(ws, noise_mode='const')
 
         # Downsample image to 256x256 if it's larger than that. VGG was built for 224x224 images.
-        synth_images = (synth_images + 1) * (255/2)
+        synth_images = (synth_images + 1) * (255 / 2)
         if synth_images.shape[2] > 256:
             synth_images = F.interpolate(synth_images, size=(256, 256), mode='area')
 
@@ -118,10 +121,10 @@ def project(
         # Noise regularization.
         reg_loss = 0.0
         for v in noise_bufs.values():
-            noise = v[None,None,:,:] # must be [1,1,H,W] for F.avg_pool2d()
+            noise = v[None, None, :, :]  # must be [1,1,H,W] for F.avg_pool2d()
             while True:
-                reg_loss += (noise*torch.roll(noise, shifts=1, dims=3)).mean()**2
-                reg_loss += (noise*torch.roll(noise, shifts=1, dims=2)).mean()**2
+                reg_loss += (noise * torch.roll(noise, shifts=1, dims=3)).mean() ** 2
+                reg_loss += (noise * torch.roll(noise, shifts=1, dims=2)).mean() ** 2
                 if noise.shape[2] <= 8:
                     break
                 noise = F.avg_pool2d(noise, kernel_size=2)
@@ -145,15 +148,16 @@ def project(
 
     return w_out.repeat([1, G.mapping.num_ws, 1])
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 
 def run_projection(
-    network_pkl: str,
-    in_dir: str,
-    out_dir: str,
-    save_video: bool,
-    seed: int,
-    steps: int
+        network_pkl: str,
+        in_dir: str,
+        out_dir: str,
+        save_video: bool,
+        seed: int,
+        steps: int
 ):
     """Project given image to the latent space of pretrained network pickle.
     Examples:
@@ -167,14 +171,14 @@ def run_projection(
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
     with dnnlib.util.open_url(network_pkl) as fp:
-        G = legacy.load_network_pkl(fp)['G_ema'].requires_grad_(False).to(device) # type: ignore
+        G = legacy.load_network_pkl(fp)['G_ema'].requires_grad_(False).to(device)  # type: ignore
 
     img_files = img_list(in_dir)
     num_images = len(img_files)
-    
+
     for image_idx in range(num_images):
         fname = basename(img_files[image_idx])
-        print('Projecting image %d/%d .. %s' % (image_idx+1, num_images, basename(img_files[image_idx])))
+        print('Projecting image %d/%d .. %s' % (image_idx + 1, num_images, basename(img_files[image_idx])))
         work_dir = os.path.join(out_dir, fname)
         os.makedirs(work_dir, exist_ok=True)
 
@@ -190,7 +194,7 @@ def run_projection(
         # start_time = perf_counter()
         projected_w_steps = project(
             G,
-            target=torch.tensor(target_uint8.transpose([2, 0, 1]), device=device), # pylint: disable=not-callable
+            target=torch.tensor(target_uint8.transpose([2, 0, 1]), device=device),  # pylint: disable=not-callable
             num_steps=steps,
             device=device,
             verbose=True
@@ -202,10 +206,10 @@ def run_projection(
         if save_video:
             vfile = '%s/proj.mp4' % work_dir
             video = imageio.get_writer(vfile, mode='I', fps=25, codec='libx264', bitrate='16M')
-            print ('Saving optimization progress video %s' % vfile)
+            print('Saving optimization progress video %s' % vfile)
             for projected_w in projected_w_steps:
                 synth_image = G.synthesis(projected_w.unsqueeze(0), noise_mode='const')
-                synth_image = (synth_image + 1) * (255/2)
+                synth_image = (synth_image + 1) * (255 / 2)
                 synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
                 video.append_data(np.concatenate([target_uint8, synth_image], axis=1))
             video.close()
@@ -214,28 +218,29 @@ def run_projection(
         target_pil.save('%s/target.jpg' % work_dir)
         projected_w = projected_w_steps[-1]
         synth_image = G.synthesis(projected_w.unsqueeze(0), noise_mode='const')
-        synth_image = (synth_image + 1) * (255/2)
+        synth_image = (synth_image + 1) * (255 / 2)
         synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
-        
+
         PIL.Image.fromarray(synth_image, 'RGB').save('%s/%s.jpg' % (work_dir, fname))
         np.savez('%s/%s.npz' % (work_dir, fname), w=projected_w.unsqueeze(0).cpu().numpy())
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
         description='Project given image to the latent space of pretrained network pickle.',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('--model',                   help='Network pickle filename', dest='network_pkl', required=True)
-    parser.add_argument('--in_dir',  default='_in',  help='Where to load the input images from', metavar='DIR')
+    parser.add_argument('--model', help='Network pickle filename', dest='network_pkl', required=True)
+    parser.add_argument('--in_dir', default='_in', help='Where to load the input images from', metavar='DIR')
     parser.add_argument('--out_dir', default='_out', help='Where to save the output images', metavar='DIR')
-    parser.add_argument('--steps',   default=1000, type=int, help='Number of iterations (default: %(default)s)') # 1000
+    parser.add_argument('--steps', default=1000, type=int, help='Number of iterations (default: %(default)s)')  # 1000
     parser.add_argument('--save_video', action='store_true', help='Save an mp4 video of optimization progress')
-    parser.add_argument('--seed',                    help='Random seed', type=int, default=696)
-    
+    parser.add_argument('--seed', help='Random seed', type=int, default=696)
+
     run_projection(**vars(parser.parse_args()))
+
 
 if __name__ == "__main__":
     main()
-
